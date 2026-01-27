@@ -49,7 +49,7 @@ At every position, each dataset nucleotide is classified as "certain" or "ambigu
 - When coverage is greater than 20:
    - "Certain" if read count support fraction is greater or equal to 90%
 - When coverage is lower than or equal to 20:
-  - "Stable" if read count support fraction is greater or equal to 97%
+  - "Certain" if read count support fraction is greater or equal to 97%
 
 | Parameter | Description |
 | ------ | ------ |
