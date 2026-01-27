@@ -64,5 +64,5 @@ At every position, each dataset nucleotide is classified as "certain" or "ambigu
 | make_noncongruent_snp_plots | If specified, will make a tree figure and indicate non-congruent dataset SNPs |
 
 
-## Memory usage
-Short note on memory usage. Some steps may consume a lot of memory, dependent on the number of SNPs identified within a group and on the total number of datasets in the group: Memory increase with a greater number of SNPs identified in the group and a greater number of datasets. Apply flag `--resources max_heavy_memory_slots=X` to limit parallelization to X number of tasks.
+## Short note on memory usage
+Some steps may consume a lot of memory, dependent on the number of SNPs identified within a group and on the total number of datasets in the group: Memory increase with a greater number of SNPs identified in the group and a greater number of datasets. Apply flag `--resources max_heavy_memory_slots=X` to limit parallelization to X for these steps.
