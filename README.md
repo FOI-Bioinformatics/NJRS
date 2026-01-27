@@ -32,9 +32,9 @@ Input file structure **example** (paths set in config)
 ```
 
 - Bam files should be sorted
-- Group-lists are single-column lists with read dataset name without extension on each line
+- Group-lists are single-column lists with read dataset name without extension on each line. The filename should be the group identifier, e.g. "B.33.list"
 - Fasta-sequences must have .fasta extension and must not be compressed
-- fasta_groups.tsv is a two-column file with (1) dataset file name without extension, (2) group identifier
+- fasta_groups.tsv is a two-column file with (1) dataset file name without extension, (2) group identifier, e.g. B.33
 
 ## Parameters
 ### Candidate SNP selection for MSA (performed group-by-group)
