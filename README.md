@@ -1,6 +1,10 @@
 # NJRS
 NJRS (Neighbour-Joining Read-support) constructs phylogenetic trees for user-defined groups from aligned read sequences. Supports low-frequency and homoplasy-associated SNPs.
 
+## Configuration
+Config file: `NJRS_config.yaml`
+* Input and output paths
+* Parameter settings
 
 ## Snakemake command
 Run command (with recommended parallelization cap to memory-intensive tasks)
@@ -9,7 +13,7 @@ snakemake --snakefile NJRS_workflow.snakemake --configfile NJRS_config.yaml --co
 ```
 
 ## Input structure
-Input file structure **example** (paths set in config `NJRS_config.yaml`)
+Input file structure **example** (paths set in config)
 ```
 .
 ├── bams
@@ -28,8 +32,6 @@ Input file structure **example** (paths set in config `NJRS_config.yaml`)
 ```
 
 ## Parameters
-Parameter description for `NJRS_config.yaml`
-
 ### Candidate SNP selection for MSA (performed group-by-group)
 | Parameter | Description |
 | ------ | ------ |
