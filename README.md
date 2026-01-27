@@ -33,7 +33,7 @@ Input file structure **example** (paths set in config)
 
 - Bam files should be sorted
 - Group-lists are single-column lists with read dataset name without extension on each line
-- Fasta-sequences must have .fasta extension and mut not be compressed
+- Fasta-sequences must have .fasta extension and must not be compressed
 - fasta_groups.tsv is a two-column file with (1) dataset file name without extension, (2) group identifier
 
 ## Parameters
