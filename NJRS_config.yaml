@@ -1,0 +1,44 @@
+## Set paths
+# reference
+ref_fa_path: 'input/ref/FSC200.fasta'
+ref_gff_path: 'input/ref/FSC200.gff'
+#/
+# datasets (sorted bam files of aligned reads)
+sample_groups_dir: 'input/groups/'
+bam_dir: 'input/bams/'
+#/
+# datasets (fasta genomes)
+fasta_dir: 'input/fasta/'
+fasta_group_table: 'input/fasta_groups.tsv'
+#/
+# output
+output_dir: 'output/'
+#/
+##/
+
+## Rule settings
+generate_MSA_from_basecounts_args:
+  snp_min_count: 2
+  pos_min_cov: 2
+  lowcount_thresh: 3
+  lowfreq_frac_thresh: 0.2
+  fixed_min_count: 5
+  fixed_min_frac: 0.7
+  ignore_same: true
+  allow_lowcov_fraction: 0.1
+
+filter_stable_MSA_positions_args:
+  ambig_output_cutoff: 0.2
+
+find_congruent_snps_from_msa_args:
+  include_leafs: true
+
+fit_fasta: true
+
+summarize_groups_args:
+  clust_dist: 500
+##/
+
+## Do parallel workflow for marking noncongruent SNPs
+make_noncongruent_snp_plots: false
+##/

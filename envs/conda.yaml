@@ -1,0 +1,12 @@
+name: NJRS_environment
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - biopython
+  - pysam
+  - matplotlib
+  - ete3
+  - pysam
+  - progressivemauve

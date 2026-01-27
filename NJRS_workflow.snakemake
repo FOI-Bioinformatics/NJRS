@@ -1,0 +1,404 @@
+import os
+from glob import glob
+import csv
+
+## Parse config file
+configfile: "NJRS_config.yaml"
+
+def params_to_args(params): # helper-function to return whatever arguments were supplied in the config (user may want to comment-out certain parameters)
+    args = []
+    for k, v in params.items():
+        if isinstance(v, bool):
+            if v:
+                args.append(f"--{k}")
+        else:
+            args.append(f"--{k} {v}")
+    return " ".join(args)
+##/
+
+## Parse sample groups (expected structure: columns with [1] sample name, [2] sample group)
+samples_groups = {}
+groups_samples = {}
+for file_ in os.listdir(config['sample_groups_dir']):
+    group = os.path.splitext(file_)[0]
+    with open(config['sample_groups_dir']+'/'+file_) as f:
+        for row in f:
+            row=row.strip('\n')
+            if not row or row[0] == '#': continue # skip empty rows or commentary rows
+            samples_groups[row] = group
+            
+            if not group in groups_samples:         groups_samples[group] = []
+            groups_samples[group].append(row)
+
+sample_names = list(samples_groups.keys())
+sample_groups = list(groups_samples.keys())
+for k,v in samples_groups.items():
+    print(f'{k}\t{v}')
+print(f'Number of samples: {len(sample_names)}')
+print(f'Number of groups: {len(sample_groups)}')
+##/
+
+## Parse background datasets
+background_datasets = []
+for file_ in os.listdir(config['bam_dir']):
+    if file_.endswith('.bam'):
+        file_ = file_.replace('.bam','')
+        if not file_ in sample_names:
+            background_datasets.append(file_)
+print(f'Number of "background" datasets: {len(background_datasets)}')
+##/
+
+## Parse fasta datasets
+fasta_datasets = []
+for file_ in os.listdir(config['fasta_dir']):
+    if file_.endswith('.fasta'):
+        file_ = file_.replace('.fasta','')
+        fasta_datasets.append(file_)
+print(f'Number of fasta datasets: {len(fasta_datasets)}')
+##/
+
+# Trigger rule for workflow
+if config['make_noncongruent_snp_plots']:
+    rule all:
+        input:
+            expand(os.path.join(config['output_dir'],'groups/{group}/mark_noncongruent_snps'), group=groups_samples)
+else:
+    rule all:
+        input:
+            #expand(os.path.join(config['output_dir'],'groups/{group}/checkpoint.group_init_done'), group=groups_samples) ## Test initdirs
+            #expand(os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim.fasta'), group=groups_samples) ## Test MSA
+            #expand(os.path.join(config['output_dir'],'groups/{group}/MSA_stable/msa_stable.fasta'), group=groups_samples) ## Test MSA_stable
+            #expand(os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates/SNPs.tsv'), group=groups_samples) ## Test find_congruent_snps_from_msa
+            #expand(os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates_fitAmbiguous/tree_after.pdf'), group=groups_samples) ## Test add_ambig_snps
+            #expand(os.path.join(config['output_dir'],'groups/{group}/summary_stablePipe.tsv'), group=groups_samples), ## Test summary
+            # trigger endpoint file
+            expand(os.path.join(config['output_dir'],'basecounts/{dataset}_bg.basecounts.gz'), dataset=background_datasets), # trigger basecounts generate of background datasets
+            os.path.join(config['output_dir'],'groups_summarized.tsv'), # aggregate group summaries to overall summary
+            os.path.join(config['output_dir'],'groups_summarized_addFastaDatasets.tsv') # include fasta datasets to overall summary
+#/
+
+### rules
+rule generate_basecounts:
+    input:
+        os.path.join(config['bam_dir'],'{sample}.bam')
+    output:
+        os.path.join(config['output_dir'],'basecounts/{sample}.basecounts.gz')
+    conda:
+        "envs/conda.yaml"
+    params:
+        ref_path=config['ref_fa_path']
+    shell:
+        """
+        python scripts/pileup.py --input {input} --output {output} --genome {params.ref_path}
+        """
+
+rule generate_basecounts_background:
+    input:
+        os.path.join(config['bam_dir'],'{dataset}.bam')
+    output:
+        os.path.join(config['output_dir'],'basecounts/{dataset}_bg.basecounts.gz')
+    conda:
+        "envs/conda.yaml"
+    params:
+        ref_path=config['ref_fa_path']
+    shell:
+        """
+        python scripts/pileup.py --input {input} --output {output} --genome {params.ref_path}
+        """
+
+rule init_group_directory:
+    input:
+        lambda wildcards: expand(os.path.join(config['output_dir'],'basecounts/{sample}.basecounts.gz'), sample=groups_samples[wildcards.group])
+    params:
+        basecounts_dir=os.path.abspath(os.path.join(config['output_dir'],'basecounts/')),
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+        samples=lambda wildcards: groups_samples[wildcards.group]
+    output:
+        os.path.join(config['output_dir'],'groups/{group}/checkpoint.group_init_done')
+    shell:
+        """
+        mkdir -p {params.group_dir}
+        mkdir -p {params.group_dir}/basecounts
+        for sample in {params.samples}; do
+            ln -sf {params.basecounts_dir}/${{sample}}.basecounts.gz {params.group_dir}/basecounts/${{sample}}.basecounts.gz
+        done
+        touch {output}
+        """
+
+rule generate_MSA_from_basecounts:
+    input:
+        os.path.join(config['output_dir'],'groups/{group}/checkpoint.group_init_done')
+    output:
+        os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim.fasta')
+    conda:
+        "envs/conda.yaml"
+    resources:
+        max_heavy_memory_slots=1
+    params:
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+        ref_path=config['ref_fa_path'],
+        args=params_to_args(config['generate_MSA_from_basecounts_args'])
+    shell:
+        """
+        python scripts/fixed_and_lowfreq_snps.py \
+            --input {params.group_dir}/basecounts \
+            --output {params.group_dir}/MSA \
+            --genome {params.ref_path} \
+            {params.args}
+        """
+
+rule filter_stable_MSA_positions:
+    input:
+        os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim.fasta')
+    output:
+        os.path.join(config['output_dir'],'groups/{group}/MSA_stable/msa_stable.fasta')
+    conda:
+        "envs/conda.yaml"
+    params:
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+        ref_path=config['ref_fa_path'],
+        args=params_to_args(config['filter_stable_MSA_positions_args'])
+    shell:
+        """
+        python scripts/msa_filter_stable.py \
+            --basecounts_dir {params.group_dir}/basecounts \
+            --msa_slim {params.group_dir}/MSA/msa_slim.fasta \
+            --msa_slim_coords {params.group_dir}/MSA/msa_slim_coords.list \
+            --ref {params.ref_path} \
+            --outdir {params.group_dir}/MSA_stable \
+            {params.args}
+        """
+
+rule find_congruent_snps_from_msa:
+    input:
+        os.path.join(config['output_dir'],'groups/{group}/MSA_stable/msa_stable.fasta')
+    output:
+        os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates/SNPs.tsv')
+    conda:
+        "envs/conda.yaml"
+    resources:
+        max_heavy_memory_slots=1
+    params:
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+        ref_path=config['ref_fa_path'],
+        args=params_to_args(config['find_congruent_snps_from_msa_args'])
+    shell:
+        """
+        python scripts/find_congruent_snps_from_msa.py \
+            --input {params.group_dir}/MSA_stable/msa_stable.fasta \
+            --coordinates {params.group_dir}/MSA_stable/msa_stable_coords.list \
+            --genome {params.ref_path} \
+            --output {params.group_dir}/CANSNP_candidates \
+            {params.args}
+        """
+
+rule discovery_msa_add_ambiguous:
+    input:
+        os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates/SNPs.tsv')
+    output:
+        os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates_fitAmbiguous/tree_after.pdf')
+    conda:
+        "envs/conda.yaml"
+    params:
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+        ref_path=config['ref_fa_path']
+    shell:
+        """
+        scripts/discovery_msa_stable_add_ambiguous.py \
+        --tree {params.group_dir}/CANSNP_candidates/tree_raw.nwk \
+        --congruent_snp_file {params.group_dir}/CANSNP_candidates/SNPs.tsv \
+        --msa_raw {params.group_dir}/MSA/msa_slim.fasta \
+        --msa_raw_coords {params.group_dir}/MSA/msa_slim_coords.list \
+        --ambig_snp_coords {params.group_dir}/MSA_stable/coords_not_output_to_msa.list \
+        --output {params.group_dir}/CANSNP_candidates_fitAmbiguous/ \
+        --ref {params.ref_path}
+        """
+
+rule msa_add_ref_info:
+    # output for this rule is required in "stablePipe_summary"
+    input:
+        os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim.fasta')
+    output:
+        os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim_coords_refinfo.tsv')
+    conda:
+        "envs/conda.yaml"
+    params:
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+        ref_path=config['ref_fa_path'],
+        ref_gff_path=config['ref_gff_path']
+    shell:
+        """
+        scripts/discovery_output_ref_nucl_and_annotation.py \
+        --reference {params.ref_path} \
+        --gff {params.ref_gff_path} \
+        --input {params.group_dir}/MSA/msa_slim_coords.list \
+        --output {params.group_dir}/MSA/msa_slim_coords_refinfo.tsv \
+        --split_input_by_comma
+        """
+
+rule stablePipe_summary:
+    input:
+        # require files from previous scripts. The script in this rule will use multiple files generated by the previous ones (not only the ones listed below).
+        os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim.fasta'),
+        os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim_coords_refinfo.tsv'),
+        os.path.join(config['output_dir'],'groups/{group}/MSA_stable/msa_stable.fasta'),
+        os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates/SNPs.tsv'),
+        os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates_fitAmbiguous/tree_after.pdf')
+    output:
+        os.path.join(config['output_dir'],'groups/{group}/summary_stablePipe.tsv')
+    conda:
+        "envs/conda.yaml"
+    params:
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+        ref_path=config['ref_fa_path'],
+        global_basecounts_dir=os.path.join(config['output_dir'],'basecounts')
+    shell:
+        """
+        scripts/discovery_msa_stable_summary.py \
+        --input {params.group_dir} \
+        --basecounts {params.global_basecounts_dir} \
+        --reference {params.ref_path} \
+        --output {params.group_dir}/summary_stablePipe.tsv
+        """
+
+rule mark_noncongruent_snps:
+    input:
+        # require files from previous scripts. The script in this rule will use multiple files generated by the previous ones (not only the ones listed below).
+        os.path.join(config['output_dir'],'groups/{group}/MSA/msa_slim.fasta'),
+        os.path.join(config['output_dir'],'groups/{group}/CANSNP_candidates_fitAmbiguous/tree_after.pdf'),
+        os.path.join(config['output_dir'],'groups/{group}/summary_stablePipe.tsv')
+    output:
+        directory(os.path.join(config['output_dir'],'groups/{group}/mark_noncongruent_snps'))
+    conda:
+        "envs/conda.yaml"
+    params:
+        group_dir=os.path.join(config['output_dir'],'groups/{group}/'),
+    shell:
+        """
+        # remove previously generated plots, if they exist. Run might have changed since previous run and so re-generate plots
+        rm -rf {params.group_dir}/mark_noncongruent_snps
+        
+        scripts/mark_noncongruent_snps.py \
+        --tree {params.group_dir}/CANSNP_candidates_fitAmbiguous/tree_nodifyed_raw.nwk \
+        --msa_slim {params.group_dir}/MSA/msa_slim.fasta \
+        --msa_slim_coords {params.group_dir}/MSA/msa_slim_coords.list \
+        --snp_summary {params.group_dir}/summary_stablePipe.tsv \
+        --output {params.group_dir}/mark_noncongruent_snps
+        """
+
+rule prepare_progressivemauve:
+    input:
+        os.path.join(config['fasta_dir'],'{dataset_fasta}.fasta')
+    output:
+        os.path.join(config['output_dir'],'fasta/softlinks/{dataset_fasta}.fasta')
+    params:
+        outdir=os.path.join(config['output_dir'],'fasta/softlinks')
+    shell:
+        """
+        mkdir -p {params.outdir}
+        ln -s "$(realpath {input})" {output}
+        """
+
+rule run_progressivemauve:
+    input:
+        os.path.join(config['output_dir'],'fasta/softlinks/{dataset_fasta}.fasta')
+    output:
+        os.path.join(config['output_dir'],'fasta/xmfa/{dataset_fasta}.xmfa')
+    conda:
+        "envs/conda.yaml"
+    params:
+        ref_path=config['ref_fa_path'],
+        outdir=os.path.join(config['output_dir'],'fasta/xmfa')
+    shell:
+        """
+        mkdir -p {params.outdir}
+        progressiveMauve --output {output} {params.ref_path} {input}
+        """
+
+rule run_x2fa:
+    input:
+        os.path.join(config['output_dir'],'fasta/xmfa/{dataset_fasta}.xmfa')
+    output:
+        os.path.join(config['output_dir'],'fasta/x2fa/{dataset_fasta}.pairwise.fasta')
+    params:
+        ref_path=config['ref_fa_path'],
+        outdir=os.path.join(config['output_dir'],'fasta/x2fa')
+    shell:
+        """
+        mkdir -p {params.outdir}
+        scripts/x2fa.py {input} {params.ref_path} 0 {output}
+        """
+
+rule pmauve_x2fa_msa_workflow:
+    input:
+        expand(os.path.join(config['output_dir'],'fasta/x2fa/{dataset_fasta}.pairwise.fasta'),dataset_fasta=fasta_datasets)
+    output:
+        os.path.join(config['output_dir'],'fasta/fastas_snpmsa.fasta')
+    run:
+        print('[pmauve_x2fa_msa_workflow] Concatenating pairwise alignment fasta files to MSA-fasta')
+        ref_written = False
+        ref_name = None
+        write_line = True
+        with open(output[0],'w') as nf:
+            for file_ in input:
+                with open(file_,'r') as f:
+                    for line_enum,line in enumerate(f):
+                        # Check if header-line. Then remove path to file and keep only the file (genome) name.
+                        if line[0] == '>':
+                            line = '>' + os.path.splitext(line.split('/')[-1])[0]+'\n' # keeps only the file name
+                        #/
+                        # Check if toggle writing (the "ref" exist in all single-alignment-fastas, but we just want one entry for the MSA-fasta)
+                        if line[0] == '>':
+                            if line_enum == 0:
+                                if ref_written: # if ref was written, dont write more ref-lines
+                                    write_line = False
+                                else: # Write ref once
+                                    write_line = True
+                                    ref_written = True
+                            else:
+                                write_line = True
+                        #/
+                        
+                        # write
+                        if write_line:
+                            nf.write(line)
+                        #/
+        print('[pmauve_x2fa_msa_workflow] Done!')
+
+
+rule summarize_groups:
+    input:
+        expand(os.path.join(config['output_dir'],'groups/{group}/summary_stablePipe.tsv'),group=groups_samples)
+    output:
+        os.path.join(config['output_dir'],'groups_summarized.tsv')
+    params:
+        groups_workdir=os.path.join(config['output_dir'],'groups'),
+        args=params_to_args(config['summarize_groups_args'])
+    conda:
+        "envs/conda.yaml"
+    shell:
+        """
+        scripts/discovery_msa_stable_summarize_groups.py \
+        --input {params.groups_workdir} \
+        --output {output} \
+        {params.args}
+        """
+
+rule addFastaDatasets_to_summary:
+    input:
+        os.path.join(config['output_dir'],'groups_summarized.tsv'),
+        os.path.join(config['output_dir'],'fasta/fastas_snpmsa.fasta')
+    output:
+        os.path.join(config['output_dir'],'groups_summarized_addFastaDatasets.tsv')
+    params:
+        msa_path=os.path.join(config['output_dir'],'fasta/fastas_snpmsa.fasta'),
+        table_path=config['fasta_group_table'],
+        summary_path=os.path.join(config['output_dir'],'groups_summarized.tsv'),
+        ref_name=os.path.basename(config['ref_fa_path']).replace('.fasta','').replace('.fna','').replace('.fa','').replace('.gz','')
+    conda:
+        "envs/conda.yaml"
+    shell:
+        """
+        scripts/discovery_msa_stable_fitFastaSNPsToSummary.py --msa {params.msa_path} --table {params.table_path} --summary {params.summary_path} --msa_ref_name {params.ref_name} --output {output}
+        """
+###/
