@@ -183,7 +183,7 @@ for row_dict in summary_rows:
     oSubclade_datasets = set()
     for tmp_subclade,tmp_datasets in subclade_datasets.items():
         if not tmp_subclade == subclade:
-            oSubclade_datasets.update(datasets)
+            oSubclade_datasets.update(tmp_datasets)
     oSubclade_datasets_has_alt_nucl = datasets_has_alt_nucl.intersection(oSubclade_datasets)
     oSubclade_datasets_has_different_nucl = datasets_has_different_alt_nucl.intersection(oSubclade_datasets)
     #/
